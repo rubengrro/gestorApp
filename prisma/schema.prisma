@@ -1,0 +1,332 @@
+// Archivo: schema.prisma
+// Este archivo define el esquema de la base de datos para la aplicación PayrollApp.
+// Los modelos aquí declarados se utilizan para gestionar usuarios, roles, incidencias laborales,
+// formularios dinámicos, periodos y relaciones con trabajadores y sus supervisores/gerentes.
+
+// Generadores
+// - `generator client`: Configura Prisma Client como herramienta para interactuar con la base de datos.
+// - `datasource db`: Define la conexión a la base de datos PostgreSQL mediante la variable de entorno DATABASE_URL.
+
+// ⚠️ IMPORTANTE:
+// - Cada modelo refleja una tabla en la base de datos con sus campos y relaciones.
+// - Los enums definen valores preestablecidos para ciertas columnas que ayudan a mantener la consistencia de datos.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String    @id @default(cuid())
+  name     String
+  email    String    @unique
+  password String
+  image    String?
+  accounts Account[]
+
+  role  Role   @default(Supervisor)
+  plant Planta @default(Planta_A)
+
+  // Relaciones con trabajadores
+  trabajadoresSupervisados Trabajador[] @relation("SupervisorRelation")
+  trabajadoresGerenciados  Trabajador[] @relation("GerenteRelation")
+
+  // Relación opcional con otros usuarios por rol
+  relatedSupervisors String[]
+  relatedRis         String[]
+  relatedInplants    String[]
+  relatedGps         String[]
+  relatedGerentes    String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, role]) // Índice único para name y role
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+// Definición de los enums
+enum Role {
+  Superadministrador
+  Administrador
+  Inplant
+  Ri
+  GPS
+  Supervisor
+  Gerente
+}
+
+enum Planta {
+  Planta_A
+  Planta_B
+  Planta_C
+  Planta_D
+  Planta_E
+  Planta_F
+  Planta_G
+  Planta_T
+  All
+}
+
+model Formulario {
+  id           Int                @id @default(autoincrement())
+  incidenciaId Int
+  fields       Json // Almacena la estructura del formulario, incluyendo tipos de campo y opciones
+  incidencia   IncidenciaCatalogo @relation(fields: [incidenciaId], references: [id], onDelete: Cascade)
+}
+
+model IncidenciaCatalogo {
+  id                 Int     @id @default(autoincrement())
+  infotype           String
+  concepto           String
+  nombreSubtipo      String  @unique
+  rolesAcceso        Role[]
+  requiereAprobacion Boolean
+  configuracion      Json?
+
+  // Relación con formularios asociados a esta IncidenciaCatalogo
+  formularios FormularioIncidencia[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  Formulario Formulario[]
+
+  Incidencia Incidencia[]
+
+  IncidenciaForms IncidenciaForms[]
+}
+
+model Trabajador {
+  id             Int     @id @default(autoincrement())
+  nombre         String
+  planta         Planta
+  numeroWD       String  @unique
+  numeroGV       String  @unique
+  numeroAnterior String? @unique
+
+  // Relaciones con usuarios Supervisor y Gerente
+  supervisorId String?
+  supervisor   User?   @relation("SupervisorRelation", fields: [supervisorId], references: [id])
+
+  gerenteId String?
+  gerente   User?   @relation("GerenteRelation", fields: [gerenteId], references: [id])
+
+  // Relación con incidencias
+  incidencias     Incidencia[] // Relación con incidencias
+  incidenciaForms IncidenciaForms[] // Nueva relación para las incidencias de formularios
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Estado {
+  Pendiente_Gerente
+  Pendiente_RI
+  No_Aplica
+  Aprobado
+  Rechazado
+}
+
+model Incidencia {
+  id                   Int          @id @default(autoincrement())
+  trabajadorNumeroWD   String
+  nombreTrabajador     String
+  infotipo             String
+  nombreSubtipo        String
+  concepto             String
+  cantidad             Int?
+  monto                Float?
+  importe              Float?
+  horas                Float?
+  folio                String?
+  email                String?
+  fechaIncidencia      DateTime?    @map("validoDe")
+  fechaAplica          DateTime?    @map("validoA")
+  fechaEliminacion     DateTime?    @db.Date
+  quienElimino         String?
+  deletedAt            DateTime?    @db.Date // Este es el nuevo campo
+  quienRegistra        String
+  requiereAprobacion   Boolean      @default(false)
+  requiereEvidencia    Boolean?     @default(false)
+  riAprobador          String?
+  gerenteAprobador     String?
+  inplantAprobador     String?
+  gpsAprobador         String?
+  ccNomina             String?
+  estado               Estado? // Cambiado a enum
+  moneda               String?
+  comentario           String?
+  comentarios          Comentario[]
+  evidencias           Json?
+  comentarioRechazo    String?
+  comentarioInplant    String?
+  comentarioRi         String?
+  comentarioGerente    String?
+  comentarioSupervisor String?
+  comentarioGPS        String?
+
+  trabajador         Trabajador         @relation(fields: [trabajadorNumeroWD], references: [numeroWD])
+  incidenciaCatalogo IncidenciaCatalogo @relation(fields: [nombreSubtipo], references: [nombreSubtipo])
+  periodoId          Int?
+  periodo            Periodo?           @relation(fields: [periodoId], references: [id])
+
+  relacionId Int?
+  relacion   Incidencia? @relation("Relacion", fields: [relacionId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  Incidencia Incidencia[] @relation("Relacion")
+}
+
+model Comentario {
+  id            Int        @id @default(autoincrement())
+  texto         String // Contenido del comentario
+  creadoPor     String // Usuario que creó el comentario
+  fechaCreacion DateTime   @default(now()) // Fecha del comentario
+  incidenciaId  Int // Relación con la incidencia
+  incidencia    Incidencia @relation(fields: [incidenciaId], references: [id])
+}
+
+model Periodo {
+  id          Int      @id @default(autoincrement())
+  numero      Int // Número de período (e.g., semana del año)
+  fechaInicio DateTime // Fecha de inicio del período
+  fechaCierre DateTime // Fecha de cierre del período
+
+  // Relación con Incidencia
+  incidencias Incidencia[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model IncidenciaForms {
+  id                 Int      @id @default(autoincrement())
+  trabajadorNumeroWD String
+  validoDe           DateTime
+  validoA            DateTime
+  tipo               Int // Cambiado a Int para que coincida con el id en IncidenciaCatalogo
+  ccNomina           String? // Solo para P0014 y P0015
+  importe            Float? // Solo para P0014 y P0015
+  moneda             String?
+  cantidad           Int? // Solo para P0014 y P0015
+  unidad             String? // Solo para P0014 y P0015
+  numeroAsignacion   String? // Solo para P0014 y P0015
+  sociedad           String? // Solo para P0014 y P0015
+  centroCoste        String? // Solo para P0014 y P0015
+  wbsElement         String? // Solo para P0014 y P0015
+  orden              String? // Solo para P0014 y P0015
+  quienRegistra      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relaciones
+  trabajador         Trabajador         @relation(fields: [trabajadorNumeroWD], references: [numeroWD])
+  incidenciaCatalogo IncidenciaCatalogo @relation(fields: [tipo], references: [id]) // Se hace referencia al campo `id`
+}
+
+model FormularioIncidencia {
+  id           Int    @id @default(autoincrement())
+  nombre       String // Nombre del formulario
+  incidenciaId Int // ID de la IncidenciaCatalogo relacionada
+
+  // Relación con IncidenciaCatalogo
+  incidencia IncidenciaCatalogo @relation(fields: [incidenciaId], references: [id], onDelete: Cascade)
+
+  // Relación con FormularioCampo
+  campos FormularioCampo[] // Lista de campos en este formulario
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FormularioCampo {
+  id              Int     @id @default(autoincrement())
+  formularioId    Int // Relación con FormularioIncidencia
+  campoId         Int // Relación con Campo
+  configuracionId Int? // Relación con CampoConfiguracion si tiene una configuración específica
+  fileUrl         String? // URL del archivo si el campo es de tipo archivo
+
+  // Relación con FormularioIncidencia
+  formulario FormularioIncidencia @relation(fields: [formularioId], references: [id])
+
+  // Relación con Campo (campo reutilizable)
+  campo Campo @relation(fields: [campoId], references: [id])
+
+  // Relación con configuración opcional
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Campo {
+  id            Int          @id @default(autoincrement())
+  nombre        String
+  tipo          String
+  placeholder   String?
+  maxLength     Int?
+  min           Int?
+  max           Int?
+  minDate       DateTime?
+  maxDate       DateTime?
+  options       String?
+  fileTypes     String?
+  maxSize       Int?
+  isShared      Boolean      @default(false)
+  campoSharedId Int? // Clave foránea para CampoShared
+  campoShared   CampoShared? @relation(fields: [campoSharedId], references: [id]) // Relación opcional
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  FormularioCampo FormularioCampo[]
+}
+
+model CampoShared {
+  id           Int       @id @default(autoincrement())
+  nombre       String
+  tipo         String
+  placeholder  String?
+  defaultValue String?
+  isShared     Boolean   @default(false)
+  maxLength    Int?
+  min          Int?
+  max          Int?
+  isEmail      Boolean?  @default(false)
+  isCurrency   Boolean?  @default(false)
+  currencyType String?
+  minDate      DateTime?
+  maxDate      DateTime?
+  options      String?
+  fileTypes    String?
+  maxSize      Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  campos Campo[] // Relación inversa
+}
